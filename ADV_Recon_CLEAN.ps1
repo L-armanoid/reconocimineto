@@ -486,56 +486,47 @@ try {
 function Upload-Discord {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory = $true)]
-        [string]$File,
-        [Parameter(Mandatory = $true)]
-        [string]$WebhookUrl,
-        [Parameter(Mandatory = $false)]
-        [string]$Message = "Archivo subido desde PowerShell"
+        [Parameter(Mandatory = $true)][string]$File,
+        [Parameter(Mandatory = $true)][string]$WebhookUrl,
+        [Parameter(Mandatory = $false)][string]$Message = "Archivo subido desde PowerShell"
     )
     try {
-        if (-not (Test-Path -LiteralPath $File)) {
-            Write-Error "El archivo $File no existe."
-            return
-        }
+        if (-not (Test-Path -LiteralPath $File)) { throw "El archivo '$File' no existe." }
 
         # Asegurar TLS 1.2
         if (-not ([System.Net.ServicePointManager]::SecurityProtocol -band [System.Net.SecurityProtocolType]::Tls12)) {
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
         }
 
-        $client = New-Object System.Net.Http.HttpClient
-        $mp = New-Object System.Net.Http.MultipartFormDataContent
+        $http = [System.Net.Http.HttpClient]::new()
+        $mp   = [System.Net.Http.MultipartFormDataContent]::new()
 
-        # Campo de texto 'content'
-        $textContent = New-Object System.Net.Http.StringContent($Message)
-        $mp.Add($textContent, "content")
+        # JSON del mensaje
+        $payload = @{ content = $Message } | ConvertTo-Json -Compress
+        $payloadContent = [System.Net.Http.StringContent]::new($payload, [Text.Encoding]::UTF8, "application/json")
+        $mp.Add($payloadContent, "payload_json")
 
-        # Campo de archivo 'file' (nombre esperado por Discord Webhooks)
+        # Archivo como files[0]
         $fs = [System.IO.File]::OpenRead($File)
         try {
-            $fileContent = New-Object System.Net.Http.StreamContent($fs)
+            $fileContent = [System.Net.Http.StreamContent]::new($fs)
             $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
             $fileName = [System.IO.Path]::GetFileName($File)
-            $mp.Add($fileContent, "file", $fileName)
+            $mp.Add($fileContent, "files[0]", $fileName)
 
-            $response = $client.PostAsync($WebhookUrl, $mp).Result
-            $respBody = $response.Content.ReadAsStringAsync().Result
+            $resp = $http.PostAsync($WebhookUrl, $mp).Result
+            $respText = $resp.Content.ReadAsStringAsync().Result
+            if (-not $resp.IsSuccessStatusCode) { throw "HTTP $([int]$resp.StatusCode) - $respText" }
 
-            if (-not $response.IsSuccessStatusCode) {
-                Write-Error ("Error al enviar a Discord. HTTP {0} - {1}" -f [int]$response.StatusCode, $respBody)
-            } else {
-                Write-Host "✅ Archivo enviado con éxito" -ForegroundColor Green
-            }
+            Write-Host "✅ Archivo enviado con éxito" -ForegroundColor Green
         }
         finally {
             if ($fs) { $fs.Dispose() }
             if ($mp) { $mp.Dispose() }
-            if ($client) { $client.Dispose() }
+            if ($http) { $http.Dispose() }
         }
-    }
-    catch {
-        Write-Error "Error al enviar el archivo a Discord: $_"
+    } catch {
+        Write-Error "Error al enviar a Discord: $_"
     }
 }
 
