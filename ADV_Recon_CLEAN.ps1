@@ -483,7 +483,6 @@ try {
 }
 
 # Subir archivo a Discord
-
 function Upload-Discord {
     [CmdletBinding()]
     param (
@@ -495,18 +494,45 @@ function Upload-Discord {
         [string]$Message = "Archivo subido desde PowerShell"
     )
     try {
-        if (-not (Test-Path $File)) {
+        if (-not (Test-Path -LiteralPath $File)) {
             Write-Error "El archivo $File no existe."
             return
         }
 
-        $form = @{
-            "content" = $Message
-            "file1"   = Get-Item $File
+        # Asegurar TLS 1.2
+        if (-not ([System.Net.ServicePointManager]::SecurityProtocol -band [System.Net.SecurityProtocolType]::Tls12)) {
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
         }
 
-        Invoke-RestMethod -Uri $WebhookUrl -Method Post -Form $form -ErrorAction Stop
-        Write-Host "✅ Archivo enviado con éxito" -ForegroundColor Green
+        $client = New-Object System.Net.Http.HttpClient
+        $mp = New-Object System.Net.Http.MultipartFormDataContent
+
+        # Campo de texto 'content'
+        $textContent = New-Object System.Net.Http.StringContent($Message)
+        $mp.Add($textContent, "content")
+
+        # Campo de archivo 'file' (nombre esperado por Discord Webhooks)
+        $fs = [System.IO.File]::OpenRead($File)
+        try {
+            $fileContent = New-Object System.Net.Http.StreamContent($fs)
+            $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
+            $fileName = [System.IO.Path]::GetFileName($File)
+            $mp.Add($fileContent, "file", $fileName)
+
+            $response = $client.PostAsync($WebhookUrl, $mp).Result
+            $respBody = $response.Content.ReadAsStringAsync().Result
+
+            if (-not $response.IsSuccessStatusCode) {
+                Write-Error ("Error al enviar a Discord. HTTP {0} - {1}" -f [int]$response.StatusCode, $respBody)
+            } else {
+                Write-Host "✅ Archivo enviado con éxito" -ForegroundColor Green
+            }
+        }
+        finally {
+            if ($fs) { $fs.Dispose() }
+            if ($mp) { $mp.Dispose() }
+            if ($client) { $client.Dispose() }
+        }
     }
     catch {
         Write-Error "Error al enviar el archivo a Discord: $_"
